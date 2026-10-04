@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+
+import subprocess
+import re
+import sys
+
+# List of specific services you care about
+SERVICES = [
+#    "mosquitto",
+#    "asdfasd",
+#    "chirpstack",
+#    "chirpstack-gateway-bridge",
+    # Add more services here
+]
+
+# Additional lambda for matching services by any other criteria
+include_service_if = lambda item: "openvpn" in item or "chirpstack" in item or item.startswith("mcw") or "mosquitto" in item
+
+header_row=""
+service_full_lines={}
+
+def check_sudo():
+    """Check if the script has sudo privileges."""
+    try:
+        subprocess.run(["systemctl", "list-units", "--type=service", "--all", "--no-pager"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    except subprocess.CalledProcessError:
+        print("Error: This script requires sudo privileges to manage systemd services.")
+        sys.exit(1)
+
+def get_services():
+    global header_row, service_full_lines
+    """Get a list of relevant services including dynamic ones."""
+    try:
+        output = subprocess.check_output(["systemctl", "list-units", "--type=service", "--all", "--no-pager"], text=True)
+        output = output.split("\n")
+        for i in output:
+          if header_row=="" and "DESCRIPTION" in i: header_row=i
+          svcname = i.strip().lstrip('●').strip().split(' ')[0].removesuffix(".service")
+          service_full_lines[svcname]=i
+          
+        output = [i.strip().lstrip('●').strip().split(' ')[0] for i in output]
+
+        dynamic_services = [item for item in output if include_service_if(item)]
+        # remove .service suffix and deduplicate as needed
+        dynamic_services = list(dict.fromkeys(item.removesuffix(".service") for item in dynamic_services))
+        return sorted(set(SERVICES + dynamic_services))
+    except subprocess.CalledProcessError as e:
+        print(f"Error fetching service list: {e}")
+        return SERVICES
+
+def get_service_status(service):
+    """Get the status of a systemd service."""
+    try:
+        output = subprocess.check_output(["systemctl", "is-active", service], text=True).strip()
+        return output
+    except subprocess.CalledProcessError:
+        return "inactive"
+
+def display_services(services):
+    global header_row, service_full_lines
+    """Display the services with their status."""
+    #print("\nTracked Services:")
+    print(f"  {header_row}")
+    for i, service in enumerate(services):
+        status = get_service_status(service)
+        if service in service_full_lines:
+          print(f"{i + 1}.{service_full_lines[service]}")
+        else:
+          print(f"{i + 1}.{service.ljust(50)} [{status}]")
+
+def manage_service(service):
+  while True:
+    """Provide a menu to manage a selected service."""
+    actions = {
+        "1": ("systemctl","start"),
+        "2": ("systemctl","restart"),
+        "3": ("systemctl","stop"),
+        "4": ("systemctl","enable"),
+        "5": ("systemctl","disable"),
+        "6": ("systemctl","reload"),
+        "7": ("journalctl","-u"),
+        "8": ("journalctl","-u")
+    }
+    print(f"\nManaging service: {service}")
+    print("1. Start")
+    print("2. Restart")
+    print("3. Stop")
+    print("4. Enable autostart at boot")
+    print("5. Disable autostart at boot")
+    print("6. Reload configuration (if supported)")
+    print("7. Show recent output (h for navigation help, q when finished)")
+    print("8. Show current output (ctrl-c when finished)")
+    print("9. Back")
+
+    choice = input("Choose an action: ").strip()
+    if choice in actions:
+        action = actions[choice]
+        try:
+            args = ["sudo", action[0], action[1], service]
+            if choice=="8": args.append("-f")
+            if action[0]=="journalctl":
+                args.append("--output=short-precise")
+#                args.append("50")
+            subprocess.run(args, check=True)
+            print(f"Successful: sudo {action[0]} {action[1]} {service}")
+        except subprocess.CalledProcessError as e:
+            if action[0] != "journalctl": print(f"Failed to {action} {service}: {e}")
+#    elif choice == "9" or choice.lower()=="q":
+#        return
+    else:
+         return
+#        print("Invalid choice. Try again.")
+
+def main():
+    check_sudo()  # Ensure we have necessary privileges
+
+    while True:
+        services = get_services()
+        display_services(services)
+
+        print("\nSelect a service by number (or 'q' to quit):")
+        choice = input("> ").strip()
+        if choice.lower() == "q" or choice=="":
+            break
+
+        if choice.isdigit():
+            index = int(choice) - 1
+            if 0 <= index < len(services):
+                manage_service(services[index])
+            else:
+                print("Invalid selection.")
+        else:
+            print("Invalid input.")
+
+if __name__ == "__main__":
+    main()

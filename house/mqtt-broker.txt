@@ -1,0 +1,22 @@
+Primary MQTT broker for services on this machine
+================================================
+
+Host:       mqtt.local
+Port:       8883 (MQTT over TLS)
+CA cert:    ca.crt in this directory (house/ca.crt)
+            CN=Caldwell-Waller Root CA, valid until 2052-01-01
+            SHA-256 C0:65:B9:9F:A3:8E:15:0C:5F:AD:A7:A4:2C:79:A0:63:
+                    B4:18:C1:EA:A7:67:7B:A5:99:96:BC:45:78:DA:EE:55
+
+Use the name mqtt.local, not the IP. The broker's certificate verifies for
+the hostname mqtt.local against house/ca.crt.
+
+mqtt.local currently resolves to 192.168.5.111. On a Docker bridge network
+.local names do not resolve, so either use network_mode: host or pin it in
+docker-compose.yml:
+
+    extra_hosts:
+      - "mqtt.local:192.168.5.111"
+
+Each service gets its own copy of house/ca.crt in its service directory, so
+the directory stays self-contained.
